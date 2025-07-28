@@ -16,16 +16,14 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Comment структура комментария
+// Comment структура комментария (без полей модерации)
 type Comment struct {
-	ID          int       `json:"id"`
-	NewsID      int       `json:"news_id"`
-	ParentID    *int      `json:"parent_id,omitempty"`
-	Text        string    `json:"text"`
-	CreatedAt   time.Time `json:"created_at"`
-	IsModerated bool      `json:"is_moderated"`
-	IsApproved  bool      `json:"is_approved"`
-	Children    []Comment `json:"children,omitempty"`
+	ID        int       `json:"id"`
+	NewsID    int       `json:"news_id"`
+	ParentID  *int      `json:"parent_id,omitempty"`
+	Text      string    `json:"text"`
+	CreatedAt time.Time `json:"created_at"`
+	Children  []Comment `json:"children,omitempty"`
 }
 
 // CommentRequest структура для создания комментария
@@ -146,6 +144,7 @@ func main() {
 	// Настройка маршрутов
 	mux.HandleFunc("/comments", commentsHandler)
 	mux.HandleFunc("/comments/", getCommentsByNewsHandler)
+	mux.HandleFunc("/health", healthCheckHandler)
 
 	// Применяем middleware
 	handler := requestIDMiddleware(mux)
@@ -197,15 +196,15 @@ func createCommentHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Сохраняем комментарий в БД (для тестирования автоматически одобряем)
+	// Сохраняем комментарий в БД (без полей модерации)
 	var commentID int
 	query := `
-        INSERT INTO comments (news_id, parent_id, text, created_at, is_moderated, is_approved)
-        VALUES ($1, $2, $3, $4, $5, $6)
+        INSERT INTO comments (news_id, parent_id, text, created_at)
+        VALUES ($1, $2, $3, $4)
         RETURNING id
     `
 	err = db.QueryRow(query, commentReq.NewsID, commentReq.ParentID, commentReq.Text,
-		time.Now(), true, true).Scan(&commentID)
+		time.Now()).Scan(&commentID)
 	if err != nil {
 		log.Printf("Ошибка сохранения комментария: %v", err)
 		http.Error(w, "Failed to create comment", http.StatusInternalServerError)
@@ -267,10 +266,34 @@ func getCommentsByNewsHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(commentTree)
 }
 
+// healthCheckHandler проверка состояния сервиса
+func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	status := map[string]interface{}{
+		"status":    "ok",
+		"timestamp": time.Now(),
+		"service":   "comments-service",
+	}
+
+	if err := db.Ping(); err != nil {
+		status["status"] = "error"
+		status["database"] = "disconnected"
+	} else {
+		status["database"] = "connected"
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(status)
+}
+
 // getCommentByID получает комментарий по ID
 func getCommentByID(id int) (*Comment, error) {
 	query := `
-        SELECT id, news_id, parent_id, text, created_at, is_moderated, is_approved
+        SELECT id, news_id, parent_id, text, created_at
         FROM comments
         WHERE id = $1
     `
@@ -282,8 +305,6 @@ func getCommentByID(id int) (*Comment, error) {
 		&comment.ParentID,
 		&comment.Text,
 		&comment.CreatedAt,
-		&comment.IsModerated,
-		&comment.IsApproved,
 	)
 
 	return comment, err
@@ -292,9 +313,9 @@ func getCommentByID(id int) (*Comment, error) {
 // getCommentsByNewsID получает все комментарии для новости
 func getCommentsByNewsID(newsID int) ([]Comment, error) {
 	query := `
-        SELECT id, news_id, parent_id, text, created_at, is_moderated, is_approved
+        SELECT id, news_id, parent_id, text, created_at
         FROM comments
-        WHERE news_id = $1 AND is_approved = true
+        WHERE news_id = $1
         ORDER BY created_at ASC
     `
 
@@ -313,8 +334,6 @@ func getCommentsByNewsID(newsID int) ([]Comment, error) {
 			&comment.ParentID,
 			&comment.Text,
 			&comment.CreatedAt,
-			&comment.IsModerated,
-			&comment.IsApproved,
 		)
 		if err != nil {
 			return nil, err

@@ -74,6 +74,17 @@ type RequestResult struct {
 	Err  error
 }
 
+// CensorshipRequest структура запроса для цензурирования
+type CensorshipRequest struct {
+	Text string `json:"text"`
+}
+
+// CensorshipResponse структура ответа цензурирования
+type CensorshipResponse struct {
+	IsApproved bool   `json:"is_approved"`
+	Message    string `json:"message,omitempty"`
+}
+
 // Middleware для обработки request_id
 func requestIDMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -474,35 +485,74 @@ func addCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	requestID, _ := r.Context().Value("request_id").(string)
 
-	body, err := json.Marshal(commentReq)
+	// СНАЧАЛА отправляем комментарий на цензурирование
+	censorReq := CensorshipRequest{Text: commentReq.Text}
+	censorBody, err := json.Marshal(censorReq)
+	if err != nil {
+		http.Error(w, "Не удалось подготовить запрос цензурирования", http.StatusInternalServerError)
+		return
+	}
+
+	censorURL := fmt.Sprintf("http://censorship-service:8083/censor?request_id=%s", requestID)
+	censorHTTPReq, err := http.NewRequest("POST", censorURL, bytes.NewReader(censorBody))
+	if err != nil {
+		http.Error(w, "Не удалось создать запрос цензурирования", http.StatusInternalServerError)
+		return
+	}
+	censorHTTPReq.Header.Set("Content-Type", "application/json")
+
+	client := &http.Client{}
+	censorResp, err := client.Do(censorHTTPReq)
+	if err != nil {
+		log.Printf("Ошибка при обращении к сервису цензурирования: %v", err)
+		http.Error(w, "Сервис цензурирования недоступен", http.StatusInternalServerError)
+		return
+	}
+	defer censorResp.Body.Close()
+
+	// Если цензура не пройдена (400), возвращаем ошибку клиенту
+	if censorResp.StatusCode == http.StatusBadRequest {
+		var censorResponse CensorshipResponse
+		json.NewDecoder(censorResp.Body).Decode(&censorResponse)
+		http.Error(w, "Комментарий содержит недопустимый контент", http.StatusBadRequest)
+		return
+	}
+
+	// Если цензура не вернула 200, это ошибка сервиса
+	if censorResp.StatusCode != http.StatusOK {
+		http.Error(w, "Ошибка сервиса цензурирования", http.StatusInternalServerError)
+		return
+	}
+
+	// Цензурирование прошло успешно, теперь создаем комментарий
+	commentBody, err := json.Marshal(commentReq)
 	if err != nil {
 		http.Error(w, "Не удалось закодировать комментарий", http.StatusInternalServerError)
 		return
 	}
 
 	commentsURL := fmt.Sprintf("http://comments-service:8081/comments?request_id=%s", requestID)
-	req, err := http.NewRequest("POST", commentsURL, bytes.NewReader(body))
+	commentHTTPReq, err := http.NewRequest("POST", commentsURL, bytes.NewReader(commentBody))
 	if err != nil {
 		http.Error(w, "Не удалось создать запрос", http.StatusInternalServerError)
 		return
 	}
-	req.Header.Set("Content-Type", "application/json")
+	commentHTTPReq.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	commentResp, err := client.Do(commentHTTPReq)
 	if err != nil {
 		http.Error(w, "Не удалось добавить комментарий", http.StatusInternalServerError)
 		return
 	}
-	defer resp.Body.Close()
+	defer commentResp.Body.Close()
 
-	if resp.StatusCode != http.StatusCreated {
-		http.Error(w, "Ошибка сервиса комментариев", resp.StatusCode)
+	if commentResp.StatusCode != http.StatusCreated {
+		http.Error(w, "Ошибка сервиса комментариев", commentResp.StatusCode)
 		return
 	}
 
 	var newComment Comment
-	err = json.NewDecoder(resp.Body).Decode(&newComment)
+	err = json.NewDecoder(commentResp.Body).Decode(&newComment)
 	if err != nil {
 		http.Error(w, "Не удалось декодировать комментарий", http.StatusInternalServerError)
 		return

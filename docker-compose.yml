@@ -40,6 +40,7 @@ services:
     depends_on:
       - news-service
       - comments-service
+      - censorship-service
 
   news-service:
     build: ./news-service
@@ -70,3 +71,9 @@ services:
       DB_USER: postgres
       DB_PASSWORD: yourpassword
       DB_NAME: comments_db
+
+  censorship-service:
+    build: ./censorship-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
