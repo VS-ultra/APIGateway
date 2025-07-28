@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  postgres_news:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: news_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: yourpassword
+    volumes:
+      - ./init_news_db.sql:/docker-entrypoint-initdb.d/init_news_db.sql
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  postgres_comments:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: comments_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: yourpassword
+    volumes:
+      - ./init_comments_db.sql:/docker-entrypoint-initdb.d/init_comments_db.sql
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  api-gateway:
+    build: ./api-gateway
+    ports:
+      - "8080:8080"
+    depends_on:
+      - news-service
+      - comments-service
+
+  news-service:
+    build: ./news-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres_news:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres_news
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: yourpassword
+      DB_NAME: news_db
+
+  comments-service:
+    build: ./comments-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres_comments:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres_comments
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: yourpassword
+      DB_NAME: comments_db
