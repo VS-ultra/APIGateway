@@ -35,16 +35,14 @@ type NewsFullDetailed struct {
 	Comments    []Comment `json:"comments"`
 }
 
-// Comment модель комментария
+// Comment модель комментария (БЕЗ полей модерации)
 type Comment struct {
-	ID          int       `json:"id"`
-	NewsID      int       `json:"news_id"`
-	ParentID    *int      `json:"parent_id,omitempty"`
-	Text        string    `json:"text"`
-	CreatedAt   time.Time `json:"created_at"`
-	IsModerated bool      `json:"is_moderated"`
-	IsApproved  bool      `json:"is_approved"`
-	Children    []Comment `json:"children,omitempty"`
+	ID        int       `json:"id"`
+	NewsID    int       `json:"news_id"`
+	ParentID  *int      `json:"parent_id,omitempty"`
+	Text      string    `json:"text"`
+	CreatedAt time.Time `json:"created_at"`
+	Children  []Comment `json:"children,omitempty"`
 }
 
 // CommentRequest структура для создания комментария
@@ -227,7 +225,7 @@ func getCommentsHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		json.NewEncoder(w).Encode(comments)
 	} else {
 		http.Error(w, "Ошибка сервиса комментариев", commentsResp.StatusCode)
@@ -279,7 +277,7 @@ func latestNewsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(newsList)
 }
 
@@ -339,7 +337,7 @@ func filterNewsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(newsList)
 }
 
@@ -462,7 +460,7 @@ func newsDetailHandler(w http.ResponseWriter, r *http.Request) {
 	// Объединяем результаты
 	news.Comments = comments
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(news)
 }
 
@@ -558,7 +556,7 @@ func addCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(newComment)
 }

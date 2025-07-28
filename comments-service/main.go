@@ -16,7 +16,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Comment структура комментария (без полей модерации)
+// Comment структура комментария (БЕЗ полей модерации)
 type Comment struct {
 	ID        int       `json:"id"`
 	NewsID    int       `json:"news_id"`
@@ -122,8 +122,8 @@ func main() {
 		log.Fatal("Необходимо задать все переменные окружения: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME")
 	}
 
-	// Формирование строки подключения
-	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
+	// Формирование строки подключения с UTF-8
+	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable client_encoding=UTF8",
 		dbHost, dbPort, dbUser, dbPassword, dbName)
 
 	var err error
@@ -136,6 +136,12 @@ func main() {
 	// Проверяем соединение
 	if err = db.Ping(); err != nil {
 		log.Fatal("Не удается подключиться к БД:", err)
+	}
+
+	// Устанавливаем кодировку UTF-8 для соединения
+	_, err = db.Exec("SET client_encoding TO 'UTF8'")
+	if err != nil {
+		log.Printf("Предупреждение: не удалось установить кодировку UTF-8: %v", err)
 	}
 
 	// Создаем mux
@@ -196,7 +202,7 @@ func createCommentHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Сохраняем комментарий в БД (без полей модерации)
+	// Сохраняем комментарий в БД (только необходимые поля)
 	var commentID int
 	query := `
         INSERT INTO comments (news_id, parent_id, text, created_at)
@@ -222,7 +228,7 @@ func createCommentHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Создан новый комментарий: ID=%d, NewsID=%d, Text=%s, request_id=%s",
 		comment.ID, comment.NewsID, comment.Text, requestID)
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(comment)
 }
@@ -258,11 +264,13 @@ func getCommentsByNewsHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Строим дерево комментариев
 	commentTree := buildCommentTree(comments)
 
-	log.Printf("Найдено комментариев: %d для новости %d, request_id: %s", len(commentTree), newsID, requestID)
+	log.Printf("Найдено комментариев: %d (всего %d) для новости %d, request_id: %s",
+		len(commentTree), len(comments), newsID, requestID)
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(commentTree)
 }
 
@@ -286,11 +294,11 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 		status["database"] = "connected"
 	}
 
-	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	json.NewEncoder(w).Encode(status)
 }
 
-// getCommentByID получает комментарий по ID
+// getCommentByID получает комментарий по ID (ТОЛЬКО нужные поля)
 func getCommentByID(id int) (*Comment, error) {
 	query := `
         SELECT id, news_id, parent_id, text, created_at
@@ -310,7 +318,7 @@ func getCommentByID(id int) (*Comment, error) {
 	return comment, err
 }
 
-// getCommentsByNewsID получает все комментарии для новости
+// getCommentsByNewsID получает все комментарии для новости (ТОЛЬКО нужные поля)
 func getCommentsByNewsID(newsID int) ([]Comment, error) {
 	query := `
         SELECT id, news_id, parent_id, text, created_at
@@ -346,26 +354,32 @@ func getCommentsByNewsID(newsID int) ([]Comment, error) {
 
 // buildCommentTree строит дерево комментариев
 func buildCommentTree(comments []Comment) []Comment {
-	commentMap := make(map[int]*Comment)
-	var roots []Comment
-
-	// Создаем карту комментариев
-	for i := range comments {
-		commentMap[comments[i].ID] = &comments[i]
-		comments[i].Children = []Comment{} // Инициализируем пустой слайс
+	if len(comments) == 0 {
+		return []Comment{}
 	}
 
-	// Строим дерево
+	// Создаем карту для быстрого поиска по ID
+	commentMap := make(map[int]*Comment)
 	for i := range comments {
-		if comments[i].ParentID == nil {
-			// Корневой комментарий
-			roots = append(roots, comments[i])
-		} else {
-			// Дочерний комментарий
+		comments[i].Children = make([]Comment, 0) // Инициализируем пустой слайс
+		commentMap[comments[i].ID] = &comments[i]
+	}
+
+	// Строим связи родитель-дочерний элемент
+	for i := range comments {
+		if comments[i].ParentID != nil {
 			parentID := *comments[i].ParentID
 			if parent, exists := commentMap[parentID]; exists {
 				parent.Children = append(parent.Children, comments[i])
 			}
+		}
+	}
+
+	// Собираем только корневые комментарии (у которых нет родителя)
+	var roots []Comment
+	for i := range comments {
+		if comments[i].ParentID == nil {
+			roots = append(roots, comments[i])
 		}
 	}
 

@@ -6,7 +6,7 @@ services:
     environment:
       POSTGRES_DB: news_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_PASSWORD: password
     volumes:
       - ./init_news_db.sql:/docker-entrypoint-initdb.d/init_news_db.sql
     ports:
@@ -22,7 +22,8 @@ services:
     environment:
       POSTGRES_DB: comments_db
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: yourpassword
+      POSTGRES_PASSWORD: password
+      POSTGRES_INITDB_ARGS: --encoding=UTF8
     volumes:
       - ./init_comments_db.sql:/docker-entrypoint-initdb.d/init_comments_db.sql
     ports:
@@ -41,6 +42,9 @@ services:
       - news-service
       - comments-service
       - censorship-service
+    environment:
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8
 
   news-service:
     build: ./news-service
@@ -54,7 +58,7 @@ services:
       DB_HOST: postgres_news
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASSWORD: yourpassword
+      DB_PASSWORD: password
       DB_NAME: news_db
 
   comments-service:
@@ -69,11 +73,16 @@ services:
       DB_HOST: postgres_comments
       DB_PORT: 5432
       DB_USER: postgres
-      DB_PASSWORD: yourpassword
+      DB_PASSWORD: password
       DB_NAME: comments_db
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
 
   censorship-service:
     build: ./censorship-service
     restart: unless-stopped
     ports:
       - "8083:8083"
+    environment:
+      - LANG=C.UTF-8
+      - LC_ALL=C.UTF-8

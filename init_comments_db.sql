@@ -1,4 +1,4 @@
-CREATE TABLE IF NOT EXISTS comments (
+CREATE TABLE comments (
     id SERIAL PRIMARY KEY,
     news_id INTEGER NOT NULL,
     parent_id INTEGER REFERENCES comments(id),
