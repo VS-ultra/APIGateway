@@ -16,7 +16,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-// Comment структура комментария (БЕЗ полей модерации)
+// Comment структура комментария
 type Comment struct {
 	ID        int       `json:"id"`
 	NewsID    int       `json:"news_id"`
@@ -33,7 +33,6 @@ type CommentRequest struct {
 	Text     string `json:"text"`
 }
 
-// Database connection
 var db *sql.DB
 
 // Middleware для обработки request_id
@@ -44,7 +43,6 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 			requestID = generateRequestID()
 		}
 
-		// Добавляем request_id в контекст
 		ctx := context.WithValue(r.Context(), "request_id", requestID)
 		r = r.WithContext(ctx)
 
@@ -57,15 +55,10 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 
-		// Создаем ResponseWriter для захвата статус кода
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
 		next.ServeHTTP(rw, r)
-
-		// Получаем request_id из контекста
 		requestID, _ := r.Context().Value("request_id").(string)
-
-		// Логируем запрос
 		log.Printf("[%s] %s %s %s %d %v",
 			start.Format("2006-01-02 15:04:05"),
 			getClientIP(r),
@@ -77,7 +70,6 @@ func loggingMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// responseWriter для захвата статус кода
 type responseWriter struct {
 	http.ResponseWriter
 	statusCode int
@@ -88,7 +80,6 @@ func (rw *responseWriter) WriteHeader(code int) {
 	rw.ResponseWriter.WriteHeader(code)
 }
 
-// Получение IP адреса клиента
 func getClientIP(r *http.Request) string {
 	forwarded := r.Header.Get("X-Forwarded-For")
 	if forwarded != "" {
@@ -97,7 +88,6 @@ func getClientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// Генерация случайного request_id
 func generateRequestID() string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 8)
@@ -110,19 +100,16 @@ func generateRequestID() string {
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
-	// Получение переменных окружения
 	dbHost := os.Getenv("DB_HOST")
 	dbPort := os.Getenv("DB_PORT")
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
 
-	// Проверка наличия всех переменных окружения
 	if dbHost == "" || dbPort == "" || dbUser == "" || dbPassword == "" || dbName == "" {
 		log.Fatal("Необходимо задать все переменные окружения: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME")
 	}
 
-	// Формирование строки подключения с UTF-8
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable client_encoding=UTF8",
 		dbHost, dbPort, dbUser, dbPassword, dbName)
 
@@ -132,27 +119,20 @@ func main() {
 		log.Fatal("Ошибка подключения к БД:", err)
 	}
 	defer db.Close()
-
-	// Проверяем соединение
 	if err = db.Ping(); err != nil {
 		log.Fatal("Не удается подключиться к БД:", err)
 	}
 
-	// Устанавливаем кодировку UTF-8 для соединения
 	_, err = db.Exec("SET client_encoding TO 'UTF8'")
 	if err != nil {
 		log.Printf("Предупреждение: не удалось установить кодировку UTF-8: %v", err)
 	}
 
-	// Создаем mux
 	mux := http.NewServeMux()
 
-	// Настройка маршрутов
 	mux.HandleFunc("/comments", commentsHandler)
 	mux.HandleFunc("/comments/", getCommentsByNewsHandler)
 	mux.HandleFunc("/health", healthCheckHandler)
-
-	// Применяем middleware
 	handler := requestIDMiddleware(mux)
 	handler = loggingMiddleware(handler)
 
@@ -202,7 +182,7 @@ func createCommentHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Сохраняем комментарий в БД (только необходимые поля)
+	// Сохраняем комментарий в БД
 	var commentID int
 	query := `
         INSERT INTO comments (news_id, parent_id, text, created_at)
@@ -298,7 +278,7 @@ func healthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(status)
 }
 
-// getCommentByID получает комментарий по ID (ТОЛЬКО нужные поля)
+// getCommentByID получает комментарий по ID
 func getCommentByID(id int) (*Comment, error) {
 	query := `
         SELECT id, news_id, parent_id, text, created_at
@@ -318,7 +298,7 @@ func getCommentByID(id int) (*Comment, error) {
 	return comment, err
 }
 
-// getCommentsByNewsID получает все комментарии для новости (ТОЛЬКО нужные поля)
+// getCommentsByNewsID получает все комментарии для новости
 func getCommentsByNewsID(newsID int) ([]Comment, error) {
 	query := `
         SELECT id, news_id, parent_id, text, created_at
@@ -357,15 +337,11 @@ func buildCommentTree(comments []Comment) []Comment {
 	if len(comments) == 0 {
 		return []Comment{}
 	}
-
-	// Создаем карту для быстрого поиска по ID
 	commentMap := make(map[int]*Comment)
 	for i := range comments {
-		comments[i].Children = make([]Comment, 0) // Инициализируем пустой слайс
+		comments[i].Children = make([]Comment, 0)
 		commentMap[comments[i].ID] = &comments[i]
 	}
-
-	// Строим связи родитель-дочерний элемент
 	for i := range comments {
 		if comments[i].ParentID != nil {
 			parentID := *comments[i].ParentID
@@ -374,8 +350,6 @@ func buildCommentTree(comments []Comment) []Comment {
 			}
 		}
 	}
-
-	// Собираем только корневые комментарии (у которых нет родителя)
 	var roots []Comment
 	for i := range comments {
 		if comments[i].ParentID == nil {

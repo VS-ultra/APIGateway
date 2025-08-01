@@ -19,7 +19,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-const PER_PAGE = 15 // Константа для количества элементов на страницу
+const PER_PAGE = 15
 
 // config структура для конфигурации из config.json
 type config struct {
@@ -72,7 +72,6 @@ type Pagination struct {
 	Total      int `json:"total"`
 }
 
-// Database connection
 var db *sql.DB
 
 // Middleware для обработки request_id
@@ -82,8 +81,6 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 		if requestID == "" {
 			requestID = generateRequestID()
 		}
-
-		// Добавляем request_id в контекст
 		ctx := context.WithValue(r.Context(), "request_id", requestID)
 		r = r.WithContext(ctx)
 
@@ -95,16 +92,11 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-
-		// Создаем ResponseWriter для захвата статус кода
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
 		next.ServeHTTP(rw, r)
-
-		// Получаем request_id из контекста
 		requestID, _ := r.Context().Value("request_id").(string)
 
-		// Логируем запрос
 		log.Printf("[%s] %s %s %s %d %v",
 			start.Format("2006-01-02 15:04:05"),
 			getClientIP(r),
@@ -136,7 +128,6 @@ func getClientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// Генерация случайного request_id
 func generateRequestID() string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 8)
@@ -149,7 +140,6 @@ func generateRequestID() string {
 func main() {
 	rand.Seed(time.Now().UnixNano())
 
-	// Читаем config.json из корня /app
 	b, err := ioutil.ReadFile("./config.json")
 	if err != nil {
 		log.Fatal("конфиг не найден:", err)
@@ -159,19 +149,16 @@ func main() {
 		log.Fatal("не удалось распарсить config.json:", err)
 	}
 
-	// Получение переменных окружения для подключения к БД
 	dbHost := os.Getenv("DB_HOST")
 	dbPort := os.Getenv("DB_PORT")
 	dbUser := os.Getenv("DB_USER")
 	dbPassword := os.Getenv("DB_PASSWORD")
 	dbName := os.Getenv("DB_NAME")
 
-	// Проверка наличия всех переменных окружения
 	if dbHost == "" || dbPort == "" || dbUser == "" || dbPassword == "" || dbName == "" {
 		log.Fatal("Необходимо задать все переменные окружения: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, DB_NAME")
 	}
 
-	// Формирование строки подключения
 	connStr := fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
 		dbHost, dbPort, dbUser, dbPassword, dbName)
 
@@ -181,7 +168,6 @@ func main() {
 	}
 	defer db.Close()
 
-	// Проверяем соединение
 	if err = db.Ping(); err != nil {
 		log.Fatal("Не удается подключиться к БД:", err)
 	}
@@ -196,19 +182,12 @@ func main() {
 		}
 	}()
 
-	// Загружаем новости при старте
 	updateNewsFromRSS(cfg.RSS)
-
-	// Создаем mux
 	mux := http.NewServeMux()
-
-	// Настройка маршрутов
 	mux.HandleFunc("/news/latest", latestNewsHandler)
 	mux.HandleFunc("/news/filter", filterNewsHandler)
 	mux.HandleFunc("/news/", newsDetailHandler)
 	mux.HandleFunc("/health", healthCheckHandler)
-
-	// Применяем middleware
 	handler := requestIDMiddleware(mux)
 	handler = loggingMiddleware(handler)
 
@@ -265,9 +244,7 @@ func fetchRSSFeed(rssURL string) ([]Item, error) {
 	return rss.Channel.Items, nil
 }
 
-// saveNewsItem сохраняет новость в базу данных
 func saveNewsItem(item Item) bool {
-	// Парсим дату публикации
 	var pubDate time.Time
 	if item.PubDate != "" {
 		if parsed, err := time.Parse(time.RFC1123, item.PubDate); err == nil {
@@ -281,21 +258,19 @@ func saveNewsItem(item Item) bool {
 		pubDate = time.Now()
 	}
 
-	// Подготавливаем данные
 	title := strings.TrimSpace(item.Title)
 	description := strings.TrimSpace(item.Description)
 	content := strings.TrimSpace(item.Content)
 	link := strings.TrimSpace(item.Link)
 
 	if title == "" || link == "" {
-		return false // Пропускаем новости без заголовка или ссылки
+		return false
 	}
 
 	if content == "" {
-		content = description // Если контента нет, используем описание
+		content = description
 	}
 
-	// Сохраняем в базу данных
 	query := `
 		INSERT INTO news (title, content, description, link, pub_date)
 		VALUES ($1, $2, $3, $4, $5)
@@ -321,7 +296,6 @@ func latestNewsHandler(w http.ResponseWriter, r *http.Request) {
 	requestID, _ := r.Context().Value("request_id").(string)
 	log.Printf("Запрос последних новостей, request_id: %s", requestID)
 
-	// Получаем параметры запроса
 	pageParam := r.URL.Query().Get("page")
 	page := 1
 	if pageParam != "" {
@@ -372,12 +346,11 @@ func filterNewsHandler(w http.ResponseWriter, r *http.Request) {
 	log.Printf("Запрос фильтрации новостей, request_id: %s", requestID)
 
 	query := r.URL.Query().Get("q")
-	searchQuery := r.URL.Query().Get("s") // Добавляем поддержку параметра s
+	searchQuery := r.URL.Query().Get("s")
 	dateFrom := r.URL.Query().Get("date_from")
 	dateTo := r.URL.Query().Get("date_to")
 	sortBy := r.URL.Query().Get("sort_by")
 
-	// Если есть параметр s, используем его для поиска
 	if searchQuery != "" && query == "" {
 		query = searchQuery
 	}
@@ -490,7 +463,6 @@ func getLatestNews(searchQuery string, limit, offset int) ([]News, int, error) {
 	var args []interface{}
 
 	if searchQuery != "" {
-		// Поиск по заголовку с использованием ILIKE
 		countQuery = "SELECT COUNT(*) FROM news WHERE title ILIKE $1"
 		newsQuery = `
 			SELECT id, title, content, description, link, pub_date, created_at
@@ -502,7 +474,6 @@ func getLatestNews(searchQuery string, limit, offset int) ([]News, int, error) {
 		searchPattern := "%" + searchQuery + "%"
 		args = []interface{}{searchPattern, limit, offset}
 	} else {
-		// Все новости
 		countQuery = "SELECT COUNT(*) FROM news"
 		newsQuery = `
 			SELECT id, title, content, description, link, pub_date, created_at
@@ -512,8 +483,6 @@ func getLatestNews(searchQuery string, limit, offset int) ([]News, int, error) {
 		`
 		args = []interface{}{limit, offset}
 	}
-
-	// Получаем общее количество
 	var total int
 	if searchQuery != "" {
 		searchPattern := "%" + searchQuery + "%"
@@ -527,8 +496,6 @@ func getLatestNews(searchQuery string, limit, offset int) ([]News, int, error) {
 			return nil, 0, err
 		}
 	}
-
-	// Получаем новости
 	rows, err := db.Query(newsQuery, args...)
 	if err != nil {
 		return nil, 0, err

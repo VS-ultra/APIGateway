@@ -35,7 +35,7 @@ type NewsFullDetailed struct {
 	Comments    []Comment `json:"comments"`
 }
 
-// Comment модель комментария (БЕЗ полей модерации)
+// Comment модель комментария
 type Comment struct {
 	ID        int       `json:"id"`
 	NewsID    int       `json:"news_id"`
@@ -90,8 +90,6 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 		if requestID == "" {
 			requestID = generateRequestID()
 		}
-
-		// Добавляем request_id в контекст
 		ctx := context.WithValue(r.Context(), "request_id", requestID)
 		r = r.WithContext(ctx)
 
@@ -103,16 +101,10 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-
-		// Создаем ResponseWriter для захвата статус кода
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
-
 		next.ServeHTTP(rw, r)
-
-		// Получаем request_id из контекста
 		requestID, _ := r.Context().Value("request_id").(string)
 
-		// Логируем запрос
 		log.Printf("[%s] %s %s %s %d %v",
 			start.Format("2006-01-02 15:04:05"),
 			getClientIP(r),
@@ -144,7 +136,6 @@ func getClientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// Генерация случайного request_id
 func generateRequestID() string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 8)
@@ -156,17 +147,12 @@ func generateRequestID() string {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-
-	// Создаем mux
 	mux := http.NewServeMux()
-
 	mux.HandleFunc("/news/latest", latestNewsHandler)
 	mux.HandleFunc("/news/filter", filterNewsHandler)
 	mux.HandleFunc("/news/", newsDetailHandler)
 	mux.HandleFunc("/comments", commentsHandler)
 	mux.HandleFunc("/comments/", getCommentsHandler)
-
-	// Применяем middleware
 	handler := requestIDMiddleware(mux)
 	handler = loggingMiddleware(handler)
 
@@ -425,14 +411,11 @@ func newsDetailHandler(w http.ResponseWriter, r *http.Request) {
 			resultChan <- RequestResult{Data: []Comment{}, Err: nil}
 		}
 	}()
-
-	// Ждем завершения всех горутин
 	go func() {
 		wg.Wait()
 		close(resultChan)
 	}()
 
-	// Обрабатываем результаты
 	var news NewsFullDetailed
 	var comments []Comment
 	var hasError bool
@@ -456,8 +439,6 @@ func newsDetailHandler(w http.ResponseWriter, r *http.Request) {
 	if hasError {
 		return
 	}
-
-	// Объединяем результаты
 	news.Comments = comments
 
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
@@ -483,7 +464,6 @@ func addCommentHandler(w http.ResponseWriter, r *http.Request) {
 
 	requestID, _ := r.Context().Value("request_id").(string)
 
-	// СНАЧАЛА отправляем комментарий на цензурирование
 	censorReq := CensorshipRequest{Text: commentReq.Text}
 	censorBody, err := json.Marshal(censorReq)
 	if err != nil {
@@ -522,7 +502,6 @@ func addCommentHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Цензурирование прошло успешно, теперь создаем комментарий
 	commentBody, err := json.Marshal(commentReq)
 	if err != nil {
 		http.Error(w, "Не удалось закодировать комментарий", http.StatusInternalServerError)

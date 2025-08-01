@@ -36,7 +36,6 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 			requestID = generateRequestID()
 		}
 
-		// Добавляем request_id в контекст
 		ctx := context.WithValue(r.Context(), "request_id", requestID)
 		r = r.WithContext(ctx)
 
@@ -48,16 +47,10 @@ func requestIDMiddleware(next http.Handler) http.Handler {
 func loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-
-		// Создаем ResponseWriter для захвата статус кода
 		rw := &responseWriter{ResponseWriter: w, statusCode: http.StatusOK}
 
 		next.ServeHTTP(rw, r)
-
-		// Получаем request_id из контекста
 		requestID, _ := r.Context().Value("request_id").(string)
-
-		// Логируем запрос
 		log.Printf("[%s] %s %s %s %d %v",
 			start.Format("2006-01-02 15:04:05"),
 			getClientIP(r),
@@ -89,7 +82,6 @@ func getClientIP(r *http.Request) string {
 	return r.RemoteAddr
 }
 
-// Генерация случайного request_id
 func generateRequestID() string {
 	const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 8)
@@ -101,15 +93,9 @@ func generateRequestID() string {
 
 func main() {
 	rand.Seed(time.Now().UnixNano())
-
-	// Создаем mux
 	mux := http.NewServeMux()
-
-	// Настройка маршрутов
 	mux.HandleFunc("/censor", censorHandler)
 	mux.HandleFunc("/health", healthCheckHandler)
-
-	// Применяем middleware
 	handler := requestIDMiddleware(mux)
 	handler = loggingMiddleware(handler)
 
