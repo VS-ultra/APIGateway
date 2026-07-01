@@ -1,0 +1,192 @@
+version: '3.8'
+
+services:
+
+  # БАЗЫ ДАННЫХ
+  postgres_news:
+    image: postgres:17-alpine
+    container_name: postgres_news
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${NEWS_DB_NAME}
+      POSTGRES_USER: ${NEWS_DB_USER}
+      POSTGRES_PASSWORD: ${NEWS_DB_PASSWORD}
+    volumes:
+      - ./init_news_db.sql:/docker-entrypoint-initdb.d/init_news_db.sql
+      - postgres_news_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${NEWS_DB_USER} -d ${NEWS_DB_NAME}"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  postgres_comments:
+    image: postgres:17-alpine
+    container_name: postgres_comments
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${COMMENTS_DB_NAME}
+      POSTGRES_USER: ${COMMENTS_DB_USER}
+      POSTGRES_PASSWORD: ${COMMENTS_DB_PASSWORD}
+    volumes:
+      - ./init_comments_db.sql:/docker-entrypoint-initdb.d/init_comments_db.sql
+      - postgres_comments_data:/var/lib/postgresql/data
+    ports:
+      - "5434:5432"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${COMMENTS_DB_USER} -d ${COMMENTS_DB_NAME}"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  postgres_aaa:
+    image: postgres:17-alpine
+    container_name: postgres_aaa
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${AAA_DB_NAME}
+      POSTGRES_USER: ${AAA_DB_USER}
+      POSTGRES_PASSWORD: ${AAA_DB_PASSWORD}
+    volumes:
+      - postgres_aaa_data:/var/lib/postgresql/data
+    ports:
+      - "5435:5432"
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${AAA_DB_USER} -d ${AAA_DB_NAME}"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # СЕРВИС АВТОРИЗАЦИИ (Java / Spring Boot)
+  system-aaa:
+    build: ./SystemAAA          
+    container_name: system_aaa
+    restart: unless-stopped
+    ports:
+      - "8084:8080"             
+    depends_on:
+      postgres_aaa:
+        condition: service_healthy
+    environment:
+      JDBC_URL: jdbc:postgresql://postgres_aaa:5432/${AAA_DB_NAME}
+      POSTGRES_USER: ${AAA_DB_USER}
+      POSTGRES_PASSWORD: ${AAA_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET}
+      MAIL_HOST: ${MAIL_HOST}
+      MAIL_PORT: ${MAIL_PORT}
+      MAIL_USERNAME: ${MAIL_USERNAME}
+      MAIL_PASSWORD: ${MAIL_PASSWORD}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      APP_BASE_URL: ${APP_BASE_URL}
+      FRONTEND_URL: ${FRONTEND_URL}
+    networks:
+      - backend
+
+  # GO СЕРВИСЫ
+  api-gateway:
+    build: ./api-gateway
+    container_name: api_gateway
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    depends_on:
+      - news-service
+      - comments-service
+      - censorship-service
+      - system-aaa
+    environment:
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+      JWT_SECRET: ${JWT_SECRET}
+      FRONTEND_URL: ${FRONTEND_URL}
+    networks:
+      - backend
+
+  news-service:
+    build: ./news-service
+    container_name: news_service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    depends_on:
+      postgres_news:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres_news
+      DB_PORT: 5432
+      DB_USER: ${NEWS_DB_USER}
+      DB_PASSWORD: ${NEWS_DB_PASSWORD}
+      DB_NAME: ${NEWS_DB_NAME}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    networks:
+      - backend
+
+  comments-service:
+    build: ./comments-service
+    container_name: comments_service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    depends_on:
+      postgres_comments:
+        condition: service_healthy
+    environment:
+      DB_HOST: postgres_comments
+      DB_PORT: 5432
+      DB_USER: ${COMMENTS_DB_USER}
+      DB_PASSWORD: ${COMMENTS_DB_PASSWORD}
+      DB_NAME: ${COMMENTS_DB_NAME}
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    networks:
+      - backend
+
+  frontend:
+    build:
+      context: D:/ReactApp/news-frontend
+      dockerfile: Dockerfile
+    container_name: frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api-gateway
+    networks:
+      - backend
+
+  censorship-service:
+    build: ./censorship-service
+    container_name: censorship_service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    volumes:
+      - ./censorship-service/forbidden_words.txt:/app/forbidden_words.txt
+    environment:
+      FORBIDDEN_WORDS_PATH: /app/forbidden_words.txt
+      LANG: C.UTF-8
+      LC_ALL: C.UTF-8
+    networks:
+      - backend
+
+
+# СЕТИ И ТОМА
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  postgres_news_data:
+  postgres_comments_data:
+  postgres_aaa_data:

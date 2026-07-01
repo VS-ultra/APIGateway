@@ -1,0 +1,3 @@
+[submodule "SystemAAA"]
+	path = SystemAAA
+	url = https://github.com/VS-ultra/SystemAAA.git
